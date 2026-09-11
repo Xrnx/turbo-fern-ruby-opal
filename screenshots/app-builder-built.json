@@ -1,0 +1,38 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Halt",
+      "hasCanvas": false,
+      "bodyTextLen": 168,
+      "bodyTextHash": "82653cd27a6c5a2cc778b08bd9d1e4f98abfc7ab5b765fed47473d03e25b4564",
+      "bodyTextPrefix": "SINGAPORE BUSES Halt Type the 5-digit code on the pole. Incoming",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Halt",
+      "hasCanvas": false,
+      "bodyTextLen": 168,
+      "bodyTextHash": "82653cd27a6c5a2cc778b08bd9d1e4f98abfc7ab5b765fed47473d03e25b4564",
+      "bodyTextPrefix": "SINGAPORE BUSES Halt Type the 5-digit code on the pole. Incoming",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": false,
+  "baselineReasons": []
+}
