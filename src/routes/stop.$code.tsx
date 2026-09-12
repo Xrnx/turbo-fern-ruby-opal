@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, RefreshCw, Star } from "lucide-react";
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ARRIVAL_REFRESH_MS, getArrivals } from "@/lib/arrivals";
 import { useSavedStops } from "@/lib/saved-stops";
-import { getStop, loadStops, type Stop } from "@/lib/stops";
+import { useStopMap } from "@/lib/stops";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/stop/$code")({
@@ -21,8 +21,8 @@ function StopPage() {
   const addRecent = useSavedStops((s) => s.addRecent);
   const toggleSaved = useSavedStops((s) => s.toggleSaved);
   const saved = useSavedStops((s) => s.saved.includes(code));
-  const [stop, setStop] = useState<Stop | undefined>();
-  const [stopMap, setStopMap] = useState<Map<string, Stop>>(new Map());
+  const stopMap = useStopMap();
+  const stop = stopMap.get(code);
 
   useEffect(() => {
     if (!valid) {
@@ -30,8 +30,6 @@ function StopPage() {
       return;
     }
     addRecent(code);
-    void getStop(code).then(setStop);
-    void loadStops().then(setStopMap);
   }, [code, valid, addRecent, navigate]);
 
   const arrivals = useQuery({

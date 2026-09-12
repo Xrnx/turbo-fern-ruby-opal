@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import { allStops, searchStops, type Stop } from "@/lib/stops";
+import { searchStops, useStopMap } from "@/lib/stops";
 import { Input } from "@/components/ui/input";
 import { Overlay } from "@/components/ui/overlay";
 import { StopRow } from "@/components/stop-row";
@@ -13,18 +13,8 @@ export function SearchPanel({
   onOpenChange: (open: boolean) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [stops, setStops] = useState<Stop[]>([]);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    void allStops().then((list) => {
-      if (!cancelled) setStops(list);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
+  const stopMap = useStopMap();
+  const stops = useMemo(() => Array.from(stopMap.values()), [stopMap]);
 
   useEffect(() => {
     if (!open) setQuery("");
