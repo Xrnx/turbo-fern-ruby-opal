@@ -29,6 +29,7 @@
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-synthesis: none;
     background: var(--color-background);
     color: var(--color-foreground);
   }
@@ -85,12 +86,10 @@
   from {
     opacity: 0;
     transform: translateY(8px);
-    filter: blur(2px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
-    filter: blur(0);
   }
 }
 

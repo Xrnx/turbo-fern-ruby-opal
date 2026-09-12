@@ -92,7 +92,9 @@ export function ArrivalList({
           >
             <div className="flex items-start gap-3">
               <div className="min-w-14">
-                <p className="font-display text-4xl font-bold leading-none tracking-tight">{svc.no}</p>
+                <p className="font-display text-4xl font-semibold leading-none tracking-tight [transform:translateZ(0)]">
+                  {svc.no}
+                </p>
               </div>
               <div className="min-w-0 flex-1 pt-0.5">
                 <p className="truncate text-sm font-medium">{dest}</p>
