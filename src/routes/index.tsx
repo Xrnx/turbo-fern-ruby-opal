@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Keypad } from "@/components/keypad";
 import { NearbyPanel } from "@/components/nearby-panel";
@@ -7,12 +7,17 @@ import { StopRow } from "@/components/stop-row";
 import { useSavedStops } from "@/lib/saved-stops";
 import { SUGGESTED_STOPS, useStopMap } from "@/lib/stops";
 
+const CameraPanel = lazy(() =>
+  import("@/components/camera-panel").then((m) => ({ default: m.CameraPanel })),
+);
+
 export const Route = createFileRoute("/")({ component: Home });
 
 function Home() {
   const [code, setCode] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [nearbyOpen, setNearbyOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const saved = useSavedStops((s) => s.saved);
   const recents = useSavedStops((s) => s.recents);
   const stopMap = useStopMap();
@@ -29,7 +34,7 @@ function Home() {
         <p className="text-xs font-medium uppercase tracking-[0.22em] text-muted">Singapore buses</p>
         <h1 className="mt-2 font-display text-6xl font-bold leading-none tracking-tight">Halt</h1>
         <p className="mt-3 max-w-sm text-sm text-muted text-pretty">
-          Type the 5-digit code on the pole. Incoming buses show up immediately — no menus, no extra taps.
+          Type the 5-digit code on the pole, or point the camera at it.
         </p>
       </header>
 
@@ -39,6 +44,7 @@ function Home() {
           onCodeChange={setCode}
           onNearby={() => setNearbyOpen(true)}
           onSearch={() => setSearchOpen(true)}
+          onScan={() => setScanOpen(true)}
         />
       </section>
 
@@ -57,6 +63,11 @@ function Home() {
 
       <SearchPanel open={searchOpen} onOpenChange={setSearchOpen} />
       <NearbyPanel open={nearbyOpen} onOpenChange={setNearbyOpen} />
+      {scanOpen ? (
+        <Suspense fallback={null}>
+          <CameraPanel open={scanOpen} onOpenChange={setScanOpen} />
+        </Suspense>
+      ) : null}
     </main>
   );
 }

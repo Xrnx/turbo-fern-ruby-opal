@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Delete, LocateFixed, Search } from "lucide-react";
+import { Camera, Delete, LocateFixed, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -11,11 +11,13 @@ export function Keypad({
   onCodeChange,
   onNearby,
   onSearch,
+  onScan,
 }: {
   code: string;
   onCodeChange: (next: string) => void;
   onNearby: () => void;
   onSearch: () => void;
+  onScan: () => void;
 }) {
   const navigate = useNavigate();
 
@@ -112,10 +114,16 @@ export function Keypad({
         </Button>
       </div>
 
-      <Button type="button" variant="outline" className="h-12 rounded-lg" onClick={onSearch}>
-        <Search className="size-4" />
-        Search by name
-      </Button>
+      <div className="grid grid-cols-2 gap-2">
+        <Button type="button" variant="outline" className="h-12 rounded-lg" onClick={onScan}>
+          <Camera className="size-4" />
+          Scan pole
+        </Button>
+        <Button type="button" variant="outline" className="h-12 rounded-lg" onClick={onSearch}>
+          <Search className="size-4" />
+          Search
+        </Button>
+      </div>
     </div>
   );
 }
