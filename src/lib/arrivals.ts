@@ -41,8 +41,12 @@ type RawService = {
   operator?: string;
   next?: RawEta | null;
   next2?: RawEta | null;
+  subsequent?: RawEta | null;
   next3?: RawEta | null;
 };
+
+const ARRIVELAH_URL = "https://arrivelah2.busrouter.sg/";
+const FETCH_MS = 8_000;
 
 function normalizeEta(raw: RawEta | null | undefined): BusEta | null {
   if (!raw || (!raw.time && raw.duration_ms == null)) return null;
@@ -58,35 +62,67 @@ function normalizeEta(raw: RawEta | null | undefined): BusEta | null {
   };
 }
 
+function parsePayload(code: string, json: { services?: RawService[] }): ArrivalPayload {
+  const services: BusService[] = (json.services ?? [])
+    .map((svc) => ({
+      no: String(svc.no ?? ""),
+      operator: String(svc.operator ?? ""),
+      next: normalizeEta(svc.next),
+      next2: normalizeEta(svc.next2 ?? svc.subsequent),
+      next3: normalizeEta(svc.next3),
+    }))
+    .filter((svc) => svc.no && (svc.next || svc.next2 || svc.next3));
+
+  services.sort((a, b) => {
+    const aMs = a.next?.duration_ms ?? Number.POSITIVE_INFINITY;
+    const bMs = b.next?.duration_ms ?? Number.POSITIVE_INFINITY;
+    if (aMs !== bMs) return aMs - bMs;
+    return a.no.localeCompare(b.no, "en", { numeric: true, sensitivity: "base" });
+  });
+
+  return { code, services };
+}
+
+async function fetchArriveLah(code: string, timeoutMs: number): Promise<ArrivalPayload> {
+  const res = await fetch(`${ARRIVELAH_URL}?id=${encodeURIComponent(code)}`, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) {
+    throw new Error("Could not load arrivals. Try again in a moment.");
+  }
+  return parsePayload(code, (await res.json()) as { services?: RawService[] });
+}
+
+function asArrivalError(err: unknown): Error {
+  if (err instanceof AggregateError) return asArrivalError(err.errors[0]);
+  if (err instanceof DOMException && (err.name === "AbortError" || err.name === "TimeoutError")) {
+    return new Error("Arrivals took too long. Refresh to try again.");
+  }
+  if (err instanceof Error && /aborted|timeout/i.test(err.message)) {
+    return new Error("Arrivals took too long. Refresh to try again.");
+  }
+  if (err instanceof Error) return err;
+  return new Error("Could not load arrivals. Try again in a moment.");
+}
+
 export const getArrivals = createServerFn({ method: "POST" })
   .validator(z.object({ code: z.string().regex(/^\d{5}$/) }))
   .handler(async ({ data }): Promise<ArrivalPayload> => {
-    const res = await fetch(`https://arrivelah2.busrouter.sg/?id=${data.code}`, {
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) {
-      throw new Error("Could not load arrivals. Try again in a moment.");
+    try {
+      return await fetchArriveLah(data.code, 6_000);
+    } catch (err) {
+      throw asArrivalError(err);
     }
-    const json = (await res.json()) as { services?: RawService[] };
-    const services: BusService[] = (json.services ?? [])
-      .map((svc) => ({
-        no: String(svc.no ?? ""),
-        operator: String(svc.operator ?? ""),
-        next: normalizeEta(svc.next),
-        next2: normalizeEta(svc.next2),
-        next3: normalizeEta(svc.next3),
-      }))
-      .filter((svc) => svc.no && (svc.next || svc.next2 || svc.next3));
-
-    services.sort((a, b) => {
-      const aMs = a.next?.duration_ms ?? Number.POSITIVE_INFINITY;
-      const bMs = b.next?.duration_ms ?? Number.POSITIVE_INFINITY;
-      if (aMs !== bMs) return aMs - bMs;
-      return a.no.localeCompare(b.no, "en", { numeric: true, sensitivity: "base" });
-    });
-
-    return { code: data.code, services };
   });
+
+export async function loadArrivals(code: string): Promise<ArrivalPayload> {
+  try {
+    return await Promise.any([fetchArriveLah(code, FETCH_MS), getArrivals({ data: { code } })]);
+  } catch (err) {
+    throw asArrivalError(err);
+  }
+}
 
 export function formatEta(ms: number | null | undefined): { label: string; unit: string; arriving: boolean } {
   if (ms == null) return { label: "—", unit: "", arriving: false };

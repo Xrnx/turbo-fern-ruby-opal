@@ -5,7 +5,7 @@ import { ChevronLeft, RefreshCw, Star } from "lucide-react";
 import { ArrivalList } from "@/components/arrival-list";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ARRIVAL_REFRESH_MS, getArrivals } from "@/lib/arrivals";
+import { ARRIVAL_REFRESH_MS, loadArrivals } from "@/lib/arrivals";
 import { useSavedStops } from "@/lib/saved-stops";
 import { useStopMap } from "@/lib/stops";
 import { cn } from "@/lib/utils";
@@ -34,9 +34,11 @@ function StopPage() {
 
   const arrivals = useQuery({
     queryKey: ["arrivals", code],
-    queryFn: () => getArrivals({ data: { code } }),
+    queryFn: () => loadArrivals(code),
     enabled: valid,
     refetchInterval: ARRIVAL_REFRESH_MS,
+    retry: 1,
+    retryDelay: 1200,
   });
 
   if (!valid) return null;
@@ -76,7 +78,7 @@ function StopPage() {
       <div className="mb-4 flex items-center justify-between text-xs text-muted">
         <span className="flex items-center gap-2">
           <span className={cn("size-1.5 rounded-full", arrivals.isFetching ? "bg-ok" : "bg-muted")} />
-          {arrivals.isError ? "Could not refresh" : "Live · every 15s"}
+          {arrivals.isError ? "Could not refresh" : arrivals.isLoading ? "Loading arrivals" : "Live · every 15s"}
         </span>
         <button
           type="button"
