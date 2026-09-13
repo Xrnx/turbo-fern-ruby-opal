@@ -94,12 +94,19 @@ async function fetchArriveLah(code: string, timeoutMs: number): Promise<ArrivalP
   return parsePayload(code, (await res.json()) as { services?: RawService[] });
 }
 
+function isTimeoutError(err: unknown) {
+  if (err instanceof DOMException && (err.name === "AbortError" || err.name === "TimeoutError")) return true;
+  return err instanceof Error && /aborted|timeout/i.test(err.message);
+}
+
+function isBlockedError(err: unknown) {
+  if (isTimeoutError(err)) return false;
+  if (err instanceof TypeError) return true;
+  return err instanceof Error && /failed to fetch|load failed|networkerror/i.test(err.message);
+}
+
 function asArrivalError(err: unknown): Error {
-  if (err instanceof AggregateError) return asArrivalError(err.errors[0]);
-  if (err instanceof DOMException && (err.name === "AbortError" || err.name === "TimeoutError")) {
-    return new Error("Arrivals took too long. Refresh to try again.");
-  }
-  if (err instanceof Error && /aborted|timeout/i.test(err.message)) {
+  if (isTimeoutError(err)) {
     return new Error("Arrivals took too long. Refresh to try again.");
   }
   if (err instanceof Error) return err;
@@ -118,9 +125,14 @@ export const getArrivals = createServerFn({ method: "POST" })
 
 export async function loadArrivals(code: string): Promise<ArrivalPayload> {
   try {
-    return await Promise.any([fetchArriveLah(code, FETCH_MS), getArrivals({ data: { code } })]);
+    return await fetchArriveLah(code, FETCH_MS);
   } catch (err) {
-    throw asArrivalError(err);
+    if (!isBlockedError(err)) throw asArrivalError(err);
+    try {
+      return await getArrivals({ data: { code } });
+    } catch (proxyErr) {
+      throw asArrivalError(proxyErr);
+    }
   }
 }
 
