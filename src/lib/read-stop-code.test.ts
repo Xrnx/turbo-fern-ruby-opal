@@ -23,7 +23,21 @@ function loadPpmGz(name: string) {
   const height = Number(header[2]);
   const data = buf.subarray(header[0].length);
   if (data.length < width * height * 3) throw new Error("truncated ppm");
-  return { data, width, height, channels: 3 as const };
+  return { data: new Uint8Array(data), width, height, channels: 3 as const };
+}
+
+function mapPixels(
+  img: { data: Uint8Array; width: number; height: number; channels: 3 },
+  fn: (r: number, g: number, b: number) => [number, number, number],
+) {
+  const data = new Uint8Array(img.data.length);
+  for (let i = 0; i < img.data.length; i += 3) {
+    const [r, g, b] = fn(img.data[i], img.data[i + 1], img.data[i + 2]);
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+  }
+  return { ...img, data };
 }
 
 describe("scoreDigitFeatures", () => {
@@ -72,11 +86,11 @@ describe("scoreDigitFeatures", () => {
       0.001,
       0.14,
     );
-    const argmax = (s: number[]) => s.indexOf(Math.max(...s));
-    assert.equal(argmax(nine), 9);
-    assert.equal(argmax(two), 2);
-    assert.equal(argmax(four), 4);
-    assert.equal(argmax(one), 1);
+    const top = (s: number[]) => s.indexOf(Math.max(...s));
+    assert.equal(top(nine), 9);
+    assert.equal(top(two), 2);
+    assert.equal(top(four), 4);
+    assert.equal(top(one), 1);
   });
 });
 
@@ -90,6 +104,29 @@ describe("readStopCode", () => {
     assert.equal(catalog.has("42241"), true);
     assert.equal(catalog.has("92249"), true);
     const img = loadPpmGz("stop-92241.ppm.gz");
+    assert.equal(readStopCode(img, catalog), "92241");
+  });
+
+  it("still reads 92241 after the plate is hue-shifted off teal", () => {
+    const img = mapPixels(loadPpmGz("stop-92241.ppm.gz"), (r, g, b) => [b, r, g]);
+    assert.equal(readStopCode(img, catalog), "92241");
+  });
+
+  it("still reads 92241 on a red plate", () => {
+    const img = mapPixels(loadPpmGz("stop-92241.ppm.gz"), (r, g, b) => {
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (lum > 190) return [255, 255, 255];
+      return [180, 30, 40];
+    });
+    assert.equal(readStopCode(img, catalog), "92241");
+  });
+
+  it("still reads 92241 as dark digits on a light plate", () => {
+    const img = mapPixels(loadPpmGz("stop-92241.ppm.gz"), (r, g, b) => [
+      255 - r,
+      255 - g,
+      255 - b,
+    ]);
     assert.equal(readStopCode(img, catalog), "92241");
   });
 });

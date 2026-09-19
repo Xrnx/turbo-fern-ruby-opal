@@ -1,4 +1,4 @@
-/** Read the 5-digit LTA pole code from a photo (white condensed digits on teal). */
+/** Read a 5-digit stop code from a photo. Colour-agnostic: light or dark digits. */
 
 export type PixelSource = {
   data: Uint8ClampedArray | Uint8Array;
@@ -9,29 +9,8 @@ export type PixelSource = {
 };
 
 type Blob = { x0: number; x1: number; y0: number; y1: number; w: number; h: number };
-type HeaderBox = { x0: number; x1: number; y0: number; y1: number };
 
-function isTeal(r: number, g: number, b: number) {
-  const mx = Math.max(r, g, b);
-  const mn = Math.min(r, g, b);
-  return mx >= 70 && mx - mn >= 25 && g >= r + 15 && b >= r + 20 && b >= g - 40 && g >= b - 55 && b >= 70;
-}
-
-function isPale(r: number, g: number, b: number) {
-  const mx = Math.max(r, g, b);
-  const mn = Math.min(r, g, b);
-  const sat = mx ? (mx - mn) / mx : 0;
-  const lum = (r + g + b) / 3;
-  return sat < 0.22 && lum > 185;
-}
-
-function isInk(r: number, g: number, b: number) {
-  const mx = Math.max(r, g, b);
-  const mn = Math.min(r, g, b);
-  const sat = mx ? (mx - mn) / mx : 0;
-  const val = mx / 255;
-  return sat <= 0.45 && val >= 0.68;
-}
+type Hit = { code: string; conf: number; height: number; inCatalog: boolean };
 
 function pixel(src: PixelSource, x: number, y: number) {
   const ch = src.channels ?? 4;
@@ -39,157 +18,17 @@ function pixel(src: PixelSource, x: number, y: number) {
   return [src.data[i], src.data[i + 1], src.data[i + 2]] as const;
 }
 
-function spans(values: Float64Array, threshold: number, minLen: number) {
-  const out: Array<[number, number]> = [];
-  const n = values.length;
-  let i = 0;
-  while (i < n) {
-    if (values[i] <= threshold) {
-      i += 1;
-      continue;
-    }
-    let j = i + 1;
-    while (j < n && values[j] > threshold) j += 1;
-    if (j - i >= minLen) out.push([i, j]);
-    i = j;
-  }
-  return out;
-}
-
-function findHeaders(src: PixelSource): HeaderBox[] {
+function luminanceOf(src: PixelSource) {
   const w = src.width;
   const h = src.height;
-  const tealCol = new Float64Array(w);
+  const lum = new Float64Array(w * h);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const [r, g, b] = pixel(src, x, y);
-      if (isTeal(r, g, b)) tealCol[x] += 1;
+      lum[y * w + x] = 0.299 * r + 0.587 * g + 0.114 * b;
     }
   }
-  for (let x = 0; x < w; x++) tealCol[x] /= h;
-
-  const xSpans = spans(tealCol, 0.12, Math.max(40, Math.floor(w / 18)));
-  const headers: HeaderBox[] = [];
-
-  for (const [sx0, sx1] of xSpans) {
-    const pw = sx1 - sx0;
-    const parts: Array<[number, number]> = [[sx0, sx1]];
-    if (pw > w * 0.42) {
-      const tcol = new Float64Array(pw);
-      for (let y = 0; y < h; y++) {
-        for (let x = sx0; x < sx1; x++) {
-          const [r, g, b] = pixel(src, x, y);
-          if (isTeal(r, g, b)) tcol[x - sx0] += 1;
-        }
-      }
-      for (let i = 0; i < pw; i++) tcol[i] /= h;
-      const mid0 = Math.floor(pw * 0.28);
-      const mid1 = Math.floor(pw * 0.72);
-      let gi = mid0;
-      let minv = tcol[mid0];
-      for (let i = mid0; i < mid1; i++) {
-        if (tcol[i] < minv) {
-          minv = tcol[i];
-          gi = i;
-        }
-      }
-      if (minv < 0.2) {
-        parts.length = 0;
-        parts.push([sx0, sx0 + gi], [sx0 + gi, sx1]);
-      }
-    }
-
-    for (const [a, c] of parts) {
-      if (c - a < 50) continue;
-      const spanW = c - a;
-      const tealRow = new Float64Array(h);
-      const paleRow = new Float64Array(h);
-      for (let y = 0; y < h; y++) {
-        let t = 0;
-        let p = 0;
-        for (let x = a; x < c; x++) {
-          const [r, g, b] = pixel(src, x, y);
-          if (isTeal(r, g, b)) t += 1;
-          if (isPale(r, g, b)) p += 1;
-        }
-        tealRow[y] = t / spanW;
-        paleRow[y] = p / spanW;
-      }
-
-      const nameBands = spans(paleRow, 0.45, Math.max(5, Math.floor(h / 100)));
-      let usedName = false;
-      for (const [wy0, wy1] of nameBands) {
-        const nh = wy1 - wy0;
-        const hy1 = wy0;
-        const floor = Math.max(0, wy0 - Math.floor(nh * 1.25));
-        let hy0 = hy1;
-        for (let y = hy1 - 1; y >= floor; y--) {
-          if (tealRow[y] <= 0.72) break;
-          hy0 = y;
-        }
-        if (hy1 - hy0 >= 10) {
-          headers.push({ x0: a, x1: c, y0: hy0, y1: hy1 });
-          usedName = true;
-        }
-      }
-
-      if (!usedName) {
-        const tealBands = spans(tealRow, 0.72, Math.max(10, Math.floor(h / 80)));
-        for (const [ty0, ty1] of tealBands) {
-          const th = ty1 - ty0;
-          if (th >= 10 && th <= Math.max(90, Math.floor(spanW * 0.55))) {
-            headers.push({ x0: a, x1: c, y0: ty0, y1: ty1 });
-          }
-        }
-      }
-    }
-  }
-  return headers;
-}
-
-function headerInk(src: PixelSource, box: HeaderBox) {
-  const w = box.x1 - box.x0;
-  const fullH = box.y1 - box.y0;
-  const full = new Uint8Array(w * fullH);
-  const row = new Float64Array(fullH);
-  for (let y = 0; y < fullH; y++) {
-    let n = 0;
-    for (let x = 0; x < w; x++) {
-      const [r, g, b] = pixel(src, box.x0 + x, box.y0 + y);
-      if (isInk(r, g, b)) {
-        full[y * w + x] = 1;
-        n += 1;
-      }
-    }
-    row[y] = n / w;
-  }
-  let peak = 0;
-  for (let y = 0; y < fullH; y++) if (row[y] > peak) peak = row[y];
-  const thr = Math.max(0.02, peak * 0.08);
-  let bestStart = 0;
-  let bestLen = 0;
-  let runStart = 0;
-  let runLen = 0;
-  for (let y = 0; y <= fullH; y++) {
-    const on = y < fullH && row[y] >= thr;
-    if (on) {
-      if (runLen === 0) runStart = y;
-      runLen += 1;
-    } else {
-      if (runLen > bestLen) {
-        bestLen = runLen;
-        bestStart = runStart;
-      }
-      runLen = 0;
-    }
-  }
-  const pad = Math.max(2, Math.floor(bestLen * 0.08));
-  const y0 = Math.max(0, bestStart - pad);
-  const y1 = Math.min(fullH, bestStart + bestLen + pad);
-  const h = Math.max(8, y1 - y0);
-  const ink = new Uint8Array(w * h);
-  ink.set(full.subarray(y0 * w, y1 * w));
-  return { ink, w, h };
+  return lum;
 }
 
 function blobsFromInk(ink: Uint8Array, w: number, h: number): Blob[] {
@@ -256,16 +95,17 @@ function pickFive(blobs: Blob[], headerH: number, headerW: number): Blob[] | nul
       }
     }
     if (badGap) continue;
-    const bodyMean = meanW;
+    const skinny = g.filter((b) => b.w / b.h < 0.38).length;
+    if (skinny >= 4) continue;
     let bodyVar = 0;
-    for (let k = 0; k < 4; k++) bodyVar += (widths[k] - bodyMean) ** 2;
-    bodyVar = Math.sqrt(bodyVar / 4) / (bodyMean + 1e-6);
+    for (let k = 0; k < 4; k++) bodyVar += (widths[k] - meanW) ** 2;
+    bodyVar = Math.sqrt(bodyVar / 4) / (meanW + 1e-6);
     const hMean = heights.reduce((a, b) => a + b, 0) / 5;
     let hVar = 0;
     for (const hh of heights) hVar += (hh - hMean) ** 2;
     hVar = Math.sqrt(hVar / 5) / (hMean + 1e-6);
     const fill = (g[4].x1 - g[0].x0) / headerW;
-    const score = bodyVar * 3 + hVar + Math.abs(0.5 - fill);
+    const score = bodyVar * 3 + hVar + Math.abs(0.45 - fill) * 0.4;
     if (score < bestScore) {
       bestScore = score;
       best = g;
@@ -502,11 +342,12 @@ function decodeFive(
   ink: Uint8Array,
   stride: number,
   known?: { has: (code: string) => boolean },
-) {
+): Hit | null {
   const medianW = medianWidth(five);
   const matrix = five.map((b) => classifyBlob(ink, stride, b, b.w / medianW));
   const raw = matrix.map((s) => String(argmax(s))).join("");
-  if (!known) return raw;
+  const conf = matrix.reduce((acc, row, i) => acc + row[raw.charCodeAt(i) - 48], 0);
+  const height = five.reduce((acc, b) => acc + b.h, 0) / 5;
 
   let bestCode: string | null = null;
   let best = -Infinity;
@@ -528,65 +369,159 @@ function decodeFive(
     }
   };
 
-  if ("forEach" in known && typeof (known as Map<string, unknown>).forEach === "function") {
+  if (known && "forEach" in known && typeof (known as Map<string, unknown>).forEach === "function") {
     (known as Map<string, unknown>).forEach((_v, code) => consider(code));
   }
 
-  const rawIn = known.has(raw);
-  if (rawIn && (!bestCode || best - matrix.reduce((acc, row, i) => acc + row[raw.charCodeAt(i) - 48], 0) < 0.8)) {
-    return raw;
-  }
-  if (bestCode && best - second >= 0.5) return bestCode;
-  return rawIn ? raw : null;
-}
-
-function readHeader(src: PixelSource, box: HeaderBox, known?: { has: (code: string) => boolean }) {
-  const { ink, w, h } = headerInk(src, box);
-  const blobs = blobsFromInk(ink, w, h);
-  const five = pickFive(blobs, h, w);
-  if (!five) return null;
-  return decodeFive(five, ink, w, known);
-}
-
-/** @internal test helper */
-export function inspectStopCode(source: PixelSource | ImageData) {
-  const src: PixelSource = {
-    data: source.data,
-    width: source.width,
-    height: source.height,
-    channels: "channels" in source && source.channels ? source.channels : 4,
-  };
-  return findHeaders(src).map((box) => {
-    const { ink, w, h } = headerInk(src, box);
-    const blobs = blobsFromInk(ink, w, h);
-    const five = pickFive(blobs, h, w);
-    if (!five) {
-      return { box, size: [w, h] as const, blobWidths: blobs.map((b) => b.w), raw: null as string | null, digits: [] };
+  const rawIn = known ? known.has(raw) : true;
+  let code = raw;
+  if (known) {
+    const rawScore = rawIn ? conf : -Infinity;
+    if (rawIn && (!bestCode || best - rawScore < 0.8)) {
+      code = raw;
+    } else if (bestCode && best - second >= 0.5) {
+      code = bestCode;
+    } else if (rawIn) {
+      code = raw;
+    } else {
+      return null;
     }
-    const medianW = medianWidth(five);
-    const digits = five.map((b) => {
-      const tight = tightCrop(ink, w, b);
-      const holes = holeStats(ink, w, tight);
-      const g = grid4(ink, w, tight);
-      const scores = classifyBlob(ink, w, b, b.w / medianW);
-      const ranked = scores
-        .map((s, d) => ({ d, s: Math.round(s * 100) / 100 }))
-        .sort((a, c) => c.s - a.s)
-        .slice(0, 4);
-      return { box: tight, aspect: +((tight.w / tight.h).toFixed(3)), holes, g, pick: argmax(scores), ranked };
-    });
-    return {
-      box,
-      size: [w, h] as const,
-      blobWidths: five.map((b) => b.w),
-      raw: digits.map((d) => String(d.pick)).join(""),
-      digits,
-    };
-  });
+  }
+  return { code, conf, height, inCatalog: known ? known.has(code) : true };
+}
+
+function lumSpread(lum: Float64Array, w: number, h: number) {
+  const row = new Float64Array(h);
+  for (let y = 0; y < h; y++) {
+    let min = 255;
+    let max = 0;
+    for (let x = 0; x < w; x++) {
+      const v = lum[y * w + x];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    row[y] = max - min;
+  }
+  return row;
+}
+
+function bandMedian(lum: Float64Array, stride: number, x0: number, x1: number, y0: number, y1: number) {
+  const hist = new Uint32Array(256);
+  let n = 0;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      let v = lum[y * stride + x];
+      if (v < 0) v = 0;
+      if (v > 255) v = 255;
+      hist[v | 0] += 1;
+      n += 1;
+    }
+  }
+  const mid = n / 2;
+  let acc = 0;
+  for (let i = 0; i < 256; i++) {
+    acc += hist[i];
+    if (acc >= mid) return i;
+  }
+  return 128;
+}
+
+function medianInkRange(
+  lum: Float64Array,
+  stride: number,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  sign: 1 | -1,
+  delta: number,
+) {
+  const med = bandMedian(lum, stride, x0, x1, y0, y1);
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const ink = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const v = lum[(y0 + y) * stride + (x0 + x)];
+      ink[y * w + x] = sign * (v - med) > delta ? 1 : 0;
+    }
+  }
+  return { ink, w, h };
+}
+
+function collectHits(lum: Float64Array, w: number, h: number, known?: { has: (code: string) => boolean }) {
+  const hits: Hit[] = [];
+  const spread = lumSpread(lum, w, h);
+  const heights = [...new Set([
+    Math.max(16, Math.min(48, Math.round(h * 0.14))),
+    Math.max(22, Math.min(72, Math.round(h * 0.22))),
+    Math.max(28, Math.min(96, Math.round(h * 0.32))),
+  ])].sort((a, b) => a - b);
+
+  const xRanges: Array<[number, number]> = [[0, w]];
+  if (w > 280) {
+    const third = Math.floor(w / 2);
+    xRanges.push([0, Math.min(w, third + Math.floor(w * 0.15))]);
+    xRanges.push([Math.max(0, w - third - Math.floor(w * 0.15)), w]);
+  }
+
+  for (const bh of heights) {
+    const step = Math.max(5, Math.floor(bh * 0.32));
+    for (let y0 = 0; y0 + bh <= h; y0 += step) {
+      const y1 = y0 + bh;
+      let spr = 0;
+      for (let y = y0; y < y1; y++) spr += spread[y];
+      if (spr / bh < 22) continue;
+      for (const [x0, x1] of xRanges) {
+        const rw = x1 - x0;
+        if (rw < 60) continue;
+        for (const sign of [1, -1] as const) {
+          for (const delta of [10, 18]) {
+            const band = medianInkRange(lum, w, x0, x1, y0, y1, sign, delta);
+            const blobs = blobsFromInk(band.ink, band.w, band.h);
+            const five = pickFive(blobs, band.h, band.w);
+            if (!five) continue;
+            const hit = decodeFive(five, band.ink, band.w, known);
+            if (hit) hits.push(hit);
+          }
+        }
+      }
+    }
+  }
+  return hits;
+}
+
+function pickHit(hits: Hit[], known?: { has: (code: string) => boolean }) {
+  if (hits.length === 0) return null;
+  const catalogued = known ? hits.filter((h) => h.inCatalog) : hits;
+  const pool = catalogued.length ? catalogued : known ? [] : hits;
+  if (pool.length === 0) return null;
+  const tally = new Map<string, { n: number; conf: number; height: number }>();
+  for (const h of pool) {
+    const t = tally.get(h.code) ?? { n: 0, conf: -Infinity, height: 0 };
+    t.n += 1;
+    if (h.conf > t.conf) t.conf = h.conf;
+    if (h.height > t.height) t.height = h.height;
+    tally.set(h.code, t);
+  }
+  let bestCode: string | null = null;
+  let best = -Infinity;
+  for (const [code, t] of tally) {
+    const digits = [...code];
+    const same = digits.every((d) => d === digits[0]);
+    if (same) continue;
+    const ones = digits.filter((d) => d === "1").length;
+    const score = t.conf * 2 + t.n + t.height * 0.06 - (ones >= 4 ? 8 : 0);
+    if (score > best) {
+      best = score;
+      bestCode = code;
+    }
+  }
+  return bestCode;
 }
 
 /**
- * Find LTA teal headers in a photo and read the 5-digit stop code.
+ * Find a 5-digit stop code in a photo, on any background colour.
  * Prefers a catalog match when `known` is provided.
  */
 export function readStopCode(
@@ -599,15 +534,7 @@ export function readStopCode(
     height: source.height,
     channels: "channels" in source && source.channels ? source.channels : 4,
   };
-  const headers = findHeaders(src);
-  let fallback: string | null = null;
-  for (const box of headers) {
-    const code = readHeader(src, box, known);
-    if (!code) continue;
-    if (!known || known.has(code)) return code;
-    fallback ??= code;
-  }
-  return fallback;
+  return pickHit(collectHits(luminanceOf(src), src.width, src.height, known), known);
 }
 
 /** Draw a video/image into ImageData, scaled so width ≤ maxW. */

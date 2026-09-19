@@ -24,7 +24,7 @@ export function CameraPanel({
   const lastGuess = useRef<string | null>(null);
   const busy = useRef(false);
   const [status, setStatus] = useState<Status>("boot");
-  const [hint, setHint] = useState("Point at the teal sign with the 5-digit code.");
+  const [hint, setHint] = useState("Point at the 5-digit code.");
 
   useEffect(() => {
     if (!open) return;
@@ -34,7 +34,7 @@ export function CameraPanel({
     lastGuess.current = null;
     busy.current = false;
     setStatus("boot");
-    setHint("Point at the teal sign with the 5-digit code.");
+    setHint("Point at the 5-digit code.");
 
     function accept(code: string) {
       onOpenChange(false);
@@ -73,7 +73,7 @@ export function CameraPanel({
     async function start() {
       if (!navigator.mediaDevices?.getUserMedia) {
         setStatus("photo-only");
-        setHint("This browser won’t open a live camera. Take a photo of the teal 5-digit code.");
+        setHint("This browser won’t open a live camera. Take a photo of the 5-digit code.");
         return;
       }
       try {
@@ -97,7 +97,7 @@ export function CameraPanel({
           await video.play().catch(() => undefined);
         }
         setStatus("scanning");
-        setHint("Point at the teal sign with the 5-digit code.");
+        setHint("Point at the 5-digit code.");
         timer = window.setInterval(() => void tick(), 550);
       } catch (err) {
         const denied =
@@ -151,13 +151,13 @@ export function CameraPanel({
       }
       const code = readStopCode(pixels, knownRef.current);
       if (!code) {
-        setHint("No stop code in that photo. Fill the frame with the teal 5-digit band.");
+        setHint("No 5-digit stop code in that photo. Fill the frame with the numbers.");
         return;
       }
       onOpenChange(false);
       void navigate({ to: "/stop/$code", params: { code } });
     } catch {
-      setHint("Couldn’t read that photo. Try again with the teal code filling the frame.");
+      setHint("Couldn’t read that photo. Try again with the 5-digit code filling the frame.");
     }
   }
 
